@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Direction Snake · 方向贪吃蛇</title>
+<style>
+*{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+html,body{
+  height:100%; margin:0; padding:0;
+  font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  background:radial-gradient(circle at 50% 50%, #16294a 0%, #0a1220 100%);
+  color:#e2e8f0; display:flex; justify-content:center; align-items:center;
+  overflow:hidden; /* 彻底防止滚动条 */
+  user-select:none; -webkit-user-select:none; -webkit-touch-callout:none;
+}
+
+/* 主容器：全屏且垂直居中 */
+.app{
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  width:100vw; height:100vh; padding:10px; gap:16px;
+}
+
+/* 核心布局魔法：让状态栏、棋盘、按钮宽度完全一致，并且自适应屏幕大小 */
+.hud, .board-wrap, .controls{
+  width: min(94vw, calc(100vh - 250px));
+}
+
+/* 状态栏 */
+.hud{ display:flex; gap:12px; flex-shrink:0; }
+.stat{
+  flex:1; background:rgba(255,255,255,.06);
+  border:1px solid rgba(255,255,255,.1);
+  border-radius:14px; padding:8px 10px;
+  display:flex; flex-direction:column; align-items:center;
+  box-shadow:0 4px 15px rgba(0,0,0,.2);
+}
+.stat span{font-size:12px; letter-spacing:2px; color:#94a3b8; font-weight:700; margin-bottom:2px;}
+.stat b{font-size:24px; color:#fbbf24; line-height:1.1;}
+#facing{color:#38bdf8;}
+#best{color:#a78bfa;}
+
+/* 棋盘 */
+.board-wrap{ position:relative; flex-shrink:1; display:flex; justify-content:center; }
+.board{
+  position:relative; width:100%; padding-bottom:100%; /* 撑开正方形 */
+  background:rgba(8,20,38,.85);
+  border:3px solid rgba(56,189,248,.35); /* 边框加粗发光 */
+  border-radius:24px;
+  box-shadow:inset 0 0 60px rgba(56,189,248,.1), 0 15px 40px rgba(0,0,0,.6);
+  overflow:hidden;
+}
+/* 网格线加亮 */
+.grid-bg{
+  position:absolute; top:0; left:0; width:100%; height:100%;
+  background-image:
+    linear-gradient(rgba(56,189,248,.18) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(56,189,248,.18) 1px, transparent 1px);
+  background-size: calc(100% / 10) calc(100% / 10);
+  pointer-events:none;
+}
+
+/* 方位字母放大 */
+.dir{position:absolute; font-size:18px; font-weight:900; color:rgba(56,189,248,.8); pointer-events:none; letter-spacing: 1px; text-shadow: 0 0 10px rgba(56,189,248,0.5);}
+.dir.n{top:8px; left:50%; transform:translateX(-50%);}
+.dir.s{bottom:8px; left:50%; transform:translateX(-50%);}
+.dir.w{left:10px; top:50%; transform:translateY(-50%);}
+.dir.e{right:10px; top:50%; transform:translateY(-50%);}
+
+.pieces{ position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+
+/* 蛇身 (10x10) */
+.seg{
+  position:absolute; width:calc(100% / 10); height:calc(100% / 10);
+  transition:left .15s ease, top .15s ease;
+  display:flex; align-items:center; justify-content:center;
+  z-index:2;
+}
+.seg-inner{
+  width:82%; height:82%; border-radius:30%;
+  background:linear-gradient(180deg,#4ade80,#16a34a);
+  box-shadow:inset 0 3px 4px rgba(255,255,255,.5), 0 3px 6px rgba(0,0,0,.4);
+}
+/* 蛇头 */
+.seg.head{ z-index:3; }
+.seg.head .seg-inner{
+  background:linear-gradient(180deg,#fde68a,#f59e0b);
+  box-shadow:inset 0 3px 4px rgba(255,255,255,.6),0 0 20px rgba(251,191,36,.8);
+  position:relative;
+  transition: transform 0.15s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.seg.head.eating .seg-inner { transform: scale(1.3); }
+/* 蛇头方向标 */
+.head-arrow{
+  position:absolute; width:0; height:0;
+  border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:10px solid #422006;
+  transition:transform .15s ease; margin-top:-2px;
+}
+
+/* 苹果 */
+.apple{
+  position:absolute; width:calc(100% / 10); height:calc(100% / 10);
+  display:flex; align-items:center; justify-content:center;
+  z-index:1; transition:left .15s ease, top .15s ease;
+}
+.apple-inner{
+  width:75%; height:75%; border-radius:50%;
+  background:radial-gradient(circle at 35% 30%, #fca5a5, #ef4444 50%, #991b1b);
+  box-shadow:0 0 15px rgba(239,68,68,.8), inset -2px -2px 6px rgba(0,0,0,0.3);
+  position:relative;
+}
+.apple-inner::after{
+  content:''; position:absolute; top:-15%; left:55%; width:40%; height:22%;
+  border-radius:0 100% 0 100%; background:#22c55e;
+  transform:rotate(-20deg); box-shadow: 1px -1px 2px rgba(0,0,0,.2);
+}
+
+/* 得分飘字特效 */
+.score-pop {
+  position: absolute; color: #fbbf24; font-size: 32px; font-weight: 900;
+  text-shadow: 0 3px 6px rgba(0,0,0,0.8), 0 0 20px #fbbf24;
+  pointer-events: none; z-index: 10;
+  transform: translate(-50%, -50%); 
+  animation: floatUp 0.8s cubic-bezier(0.2, 1, 0.4, 1) forwards;
+}
+@keyframes floatUp {
+  0% { opacity: 1; transform: translate(-50%, -50%) scale(0.5); }
+  30% { opacity: 1; transform: translate(-50%, -100%) scale(1.4); }
+  100% { opacity: 0; transform: translate(-50%, -180%) scale(1); }
+}
+
+/* 按钮区域放大 */
+.controls{
+  display:grid; grid-template-columns:1fr 1fr; gap:12px; flex-shrink: 0;
+}
+.ctrl{
+  font-family:inherit; border:0; border-radius:18px;
+  padding:16px 12px; display:flex; align-items:center; justify-content:center; gap:12px;
+  cursor:pointer; font-weight:800; color:#fff;
+  transition:transform .1s, box-shadow .1s;
+  box-shadow:0 6px 0 rgba(0,0,0,.4);
+}
+.ctrl:active{transform:translateY(6px); box-shadow:0 0 0 rgba(0,0,0,.4);}
+.ctrl .k{font-size:36px; line-height:1; font-family: Arial, sans-serif;}
+.ctrl .text-box{display:flex; flex-direction:column; align-items:flex-start;}
+.ctrl .en{font-size:22px; letter-spacing:.5px; line-height: 1.1; margin-bottom: 2px;}
+.ctrl .zh{font-size:15px; opacity:.85; font-weight:600;}
+[data-act="left"]{background:linear-gradient(180deg,#60a5fa,#2563eb);}
+[data-act="right"]{background:linear-gradient(180deg,#4ade80,#16a34a);}
+[data-act="back"]{background:linear-gradient(180deg,#fb923c,#c2410c);}
+[data-act="ahead"]{background:linear-gradient(180deg,#fbbf24,#d97706); color:#422006;}
+[data-act="ahead"] .zh{opacity:.95;}
+
+/* 遮罩层 */
+.overlay{
+  position:fixed; top:0; left:0; right:0; bottom:0;
+  background:rgba(4,8,16,.85); display:none; align-items:center; justify-content:center;
+  z-index:50; backdrop-filter: blur(6px);
+}
+.overlay.show{display:flex;}
+.overlay-card{
+  width:min(100%,420px);
+  background:linear-gradient(180deg,#16233a,#0d1626);
+  border:2px solid rgba(251,191,36,.4);
+  border-radius:24px; padding:32px; text-align:center;
+  box-shadow: 0 25px 60px rgba(0,0,0,.7);
+}
+.overlay-card h2{margin:0 0 16px; font-size:30px; color:#fbbf24;}
+.overlay-card p{margin:0 0 28px; font-size:18px; line-height:1.6; color:#cbd5e1;}
+.overlay-card b{color:#fbbf24; font-size:24px;}
+.overlay-card button{
+  font-family:inherit; font-weight:800; font-size:18px;
+  padding:16px 45px; border-radius:14px; border:0; cursor:pointer;
+  background:linear-gradient(180deg,#fbbf24,#f59e0b);
+  color:#422006; box-shadow:0 6px 0 #b45309;
+}
+.overlay-card button:active{transform:translateY(6px); box-shadow:0 0 0 #b45309;}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- 状态栏 -->
+  <div class="hud">
+    <div class="stat"><span>SCORE</span><b id="score">0</b></div>
+    <div class="stat"><span>FACING</span><b id="facing">North</b></div>
+    <div class="stat"><span>BEST</span><b id="best">0</b></div>
+  </div>
+
+  <!-- 棋盘 -->
+  <div class="board-wrap">
+    <div class="board">
+      <div class="grid-bg"></div>
+      <span class="dir n">N</span>
+      <span class="dir e">E</span>
+      <span class="dir s">S</span>
+      <span class="dir w">W</span>
+      <div class="pieces" id="pieces"></div>
+    </div>
+  </div>
+
+  <!-- 按钮 -->
+  <div class="controls" id="controls">
+    <button class="ctrl" data-act="left">
+      <span class="k">←</span>
+      <div class="text-box"><span class="en">Turn left</span><span class="zh">向左转</span></div>
+    </button>
+    <button class="ctrl" data-act="right">
+      <span class="k">→</span>
+      <div class="text-box"><span class="en">Turn right</span><span class="zh">向右转</span></div>
+    </button>
+    <button class="ctrl" data-act="back">
+      <span class="k">↓</span>
+      <div class="text-box"><span class="en">Turn back</span><span class="zh">向后转</span></div>
+    </button>
+    <button class="ctrl" data-act="ahead">
+      <span class="k">↑</span>
+      <div class="text-box"><span class="en">Go straight</span><span class="zh">笔直朝前</span></div>
+    </button>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="overlay-card">
+    <h2 id="ovTitle">游戏结束</h2>
+    <p id="ovText"></p>
+    <button id="restartBtn">🔄 再来一局</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  var SIZE = 10;
+  var PERCENT = 100 / SIZE;
+  
+  var DIRS = [{c:0,r:-1},{c:1,r:0},{c:0,r:1},{c:-1,r:0}];
+  var DIR_NAMES = ['North','East','South','West'];
+
+  var piecesEl  = document.getElementById('pieces');
+  var scoreEl   = document.getElementById('score');
+  var facingEl  = document.getElementById('facing');
+  var bestEl    = document.getElementById('best');
+  var overlayEl = document.getElementById('overlay');
+  var ovTitle   = document.getElementById('ovTitle');
+  var ovText    = document.getElementById('ovText');
+  var restartBtn= document.getElementById('restartBtn');
+  var controlsEl= document.getElementById('controls');
+
+  var snake = [];
+  var dir = 0;
+  var apple = {c:0, r:0};
+  var score = 0;
+  var playing = false;
+  var lock = false;
+  var segEls = [];
+  var appleEl = null;
+  
+  var best = 0;
+  try {
+    best = parseInt(localStorage.getItem('dirsnake-best') || '0', 10) || 0;
+  } catch(e) { best = 0; }
+  bestEl.textContent = best;
+
+  /* --- 音效 --- */
+  var actx = null;
+  function initAudio(){
+    if(!actx){
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if(AC) actx = new AC();
+    }
+    if(actx && actx.state === 'suspended') actx.resume();
+  }
+  function beep(freq, delay, dur, vol, type){
+    if(!actx) return;
+    var o = actx.createOscillator();
+    var g = actx.createGain();
+    o.type = type || 'sine';
+    o.frequency.value = freq;
+    var t0 = actx.currentTime + delay;
+    g.gain.setValueAtTime(vol, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(actx.destination);
+    o.start(t0); o.stop(t0 + dur);
+  }
+
+  /* --- 得分飘字特效 --- */
+  function showScorePop(c, r, points) {
+    var pop = document.createElement('div');
+    pop.className = 'score-pop';
+    pop.textContent = '+' + points;
+    pop.style.left = ((c + 0.5) * PERCENT) + '%';
+    pop.style.top = ((r + 0.5) * PERCENT) + '%';
+    piecesEl.appendChild(pop);
+    
+    setTimeout(function() {
+      if (pop.parentNode) pop.parentNode.removeChild(pop);
+    }, 800);
+  }
+
+  /* --- 核心逻辑 --- */
+  function reset(){
+    piecesEl.innerHTML = '';
+    segEls = [];
+    
+    appleEl = document.createElement('div');
+    appleEl.className = 'apple';
+    appleEl.innerHTML = '<div class="apple-inner"></div>';
+    piecesEl.appendChild(appleEl);
+
+    // 10x10 棋盘，初始位置放在偏中心
+    snake = [{c:5,r:5},{c:5,r:6},{c:5,r:7}];
+    dir = 0;
+    score = 0;
+    playing = true;
+    lock = false;
+
+    render();
+    spawnApple();
+    updateHUD();
+    overlayEl.classList.remove('show');
+  }
+
+  function spawnApple(){
+    var free = [];
+    for(var c=0; c<SIZE; c++){
+      for(var r=0; r<SIZE; r++){
+        var isOnSnake = false;
+        for(var i=0; i<snake.length; i++){
+          if(snake[i].c === c && snake[i].r === r){ isOnSnake = true; break; }
+        }
+        if(!isOnSnake) free.push({c:c, r:r});
+      }
+    }
+    if(free.length === 0){ gameOver(true); return; }
+    
+    apple = free[Math.floor(Math.random() * free.length)];
+    appleEl.style.left = (apple.c * PERCENT) + '%';
+    appleEl.style.top  = (apple.r * PERCENT) + '%';
+  }
+
+  function render(){
+    while(segEls.length < snake.length){
+      var el = document.createElement('div');
+      el.className = 'seg';
+      el.innerHTML = '<div class="seg-inner"></div>';
+      piecesEl.appendChild(el);
+      segEls.push(el);
+    }
+
+    for(var i=0; i<snake.length; i++){
+      var s = snake[i];
+      var el = segEls[i];
+
+      if(i === 0 && !el.classList.contains('head')){
+        el.classList.add('head');
+        el.innerHTML = '<div class="seg-inner"><div class="head-arrow"></div></div>';
+      } else if(i > 0 && el.classList.contains('head')){
+        el.classList.remove('head');
+        el.innerHTML = '<div class="seg-inner"></div>';
+      }
+
+      el.style.left = (s.c * PERCENT) + '%';
+      el.style.top  = (s.r * PERCENT) + '%';
+    }
+
+    if(segEls.length > 0){
+      var arrow = segEls[0].querySelector('.head-arrow');
+      if(arrow){
+        arrow.style.transform = 'rotate(' + (dir * 90) + 'deg)';
+      }
+    }
+  }
+
+  function updateHUD(){
+    scoreEl.textContent = score;
+    facingEl.textContent = DIR_NAMES[dir];
+  }
+
+  function gameOver(isWin){
+    playing = false;
+    if(isWin){
+      ovTitle.textContent = '🎉 通关啦！';
+      ovText.innerHTML = '太强了！得分 <b>' + score + '</b> 分。';
+    }else{
+      ovTitle.textContent = '💥 撞到啦！';
+      ovText.innerHTML = '得分 <b>' + score + '</b> 分，再来一次吧！';
+    }
+    
+    if(score > best){
+      best = score;
+      try { localStorage.setItem('dirsnake-best', best); } catch(e){}
+      bestEl.textContent = best;
+      ovText.innerHTML += '<br><small style="color:#fbbf24">🏆 新纪录！</small>';
+    }
+    overlayEl.classList.add('show');
+  }
+
+  function step(action){
+    if(!playing || lock) return;
+    lock = true;
+    setTimeout(function(){ lock = false; }, 130);
+
+    var nd = dir;
+    if(action === 'right') nd = (dir + 1) % 4;
+    else if(action === 'left') nd = (dir + 3) % 4;
+    else if(action === 'back') nd = (dir + 2) % 4;
+    
+    dir = nd;
+    updateHUD();
+
+    var d = DIRS[nd];
+    var head = snake[0];
+    var nh = { c: head.c + d.c, r: head.r + d.r };
+
+    // 撞墙判定
+    if(nh.c < 0 || nh.c >= SIZE || nh.r < 0 || nh.r >= SIZE){
+      beep(150, 0, 0.3, 0.1, 'sawtooth');
+      render();
+      gameOver(false);
+      return;
+    }
+
+    // 撞自己判定
+    var willEat = (nh.c === apple.c && nh.r === apple.r);
+    var bodyLen = willEat ? snake.length : snake.length - 1;
+    for(var i=0; i<bodyLen; i++){
+      if(snake[i].c === nh.c && snake[i].r === nh.r){
+        beep(150, 0, 0.3, 0.1, 'sawtooth');
+        render();
+        gameOver(false);
+        return;
+      }
+    }
+
+    snake.unshift(nh);
+    
+    if(willEat){
+      score++;
+      // 音效反馈
+      beep(880, 0, 0.1, 0.06, 'sine');
+      beep(1320, 0.08, 0.15, 0.06, 'sine');
+      
+      // 飘字特效
+      showScorePop(apple.c, apple.r, 1);
+      
+      // 蛇头放大动画
+      var headEl = segEls[0];
+      if(headEl){
+        headEl.classList.add('eating');
+        setTimeout(function(){ headEl.classList.remove('eating'); }, 150);
+      }
+
+      render();
+      spawnApple();
+      updateHUD();
+    }else{
+      snake.pop();
+      render();
+    }
+  }
+
+  /* --- 事件绑定 --- */
+  controlsEl.addEventListener('click', function(e){
+    var btn = e.target.closest('[data-act]');
+    if(!btn) return;
+    initAudio();
+    step(btn.getAttribute('data-act'));
+  });
+
+  restartBtn.addEventListener('click', function(){
+    initAudio();
+    reset();
+  });
+
+  window.onload = function() {
+    reset();
+  };
+  if(document.readyState === 'complete' || document.readyState === 'interactive'){
+    reset();
+  }
+})();
+</script>
+</body>
+</html>
